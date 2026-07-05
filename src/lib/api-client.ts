@@ -2,6 +2,14 @@ import type { TokenPair } from './types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000/api/v1';
 
+/**
+ * DEMO MODE: when NEXT_PUBLIC_DEMO_MODE=true every request is served from an
+ * in-browser mock store (src/lib/demo/) — no backend or database needed.
+ * Use this for standalone marketplace previews (e.g. a Vercel deployment of
+ * the frontend only).
+ */
+export const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
+
 const ACCESS_KEY = 'crm_access_token';
 const REFRESH_KEY = 'crm_refresh_token';
 
@@ -92,6 +100,10 @@ async function rawRequest(path: string, opts: RequestOptions, retried = false): 
 }
 
 export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  if (DEMO_MODE) {
+    const { demoApi } = await import('./demo/api');
+    return demoApi(path, opts) as Promise<T>;
+  }
   const res = await rawRequest(path, opts);
   if (!res.ok) {
     let detail = res.statusText;
@@ -109,9 +121,15 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T
 
 /** Download a file behind auth and trigger a browser save dialog. */
 export async function apiDownload(path: string, filename: string): Promise<void> {
-  const res = await rawRequest(path, {});
-  if (!res.ok) throw new ApiError(res.status, res.statusText);
-  const blob = await res.blob();
+  let blob: Blob;
+  if (DEMO_MODE) {
+    const { demoApi } = await import('./demo/api');
+    blob = new Blob([String(await demoApi(path))], { type: 'text/csv;charset=utf-8' });
+  } else {
+    const res = await rawRequest(path, {});
+    if (!res.ok) throw new ApiError(res.status, res.statusText);
+    blob = await res.blob();
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
